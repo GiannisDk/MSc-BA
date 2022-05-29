@@ -1,0 +1,468 @@
+##setwdata('/Users/giannisdataekoulakos/dataesktop/karlis')
+library(glmnet)
+library(aod)
+library(psych)
+library(car)
+library(corrgram)
+library(cluster)
+install.packages("readxl")
+library("readxl")
+library('pgmm')
+library('nnet')
+library('class')
+library('e1071')	
+library('penalizedLDA')
+library('MASS')
+library('tree')
+library('mclust')
+install.packages("rpart.plot")
+library('rpart')
+library('rpart.plot')
+
+d=read_excel( "/Users/giannisdekoulakos/Desktop/karlis/project_I.xls")
+
+
+
+d$SUBSCRIBED[d$SUBSCRIBED=="no"] <-0
+d$SUBSCRIBED[d$SUBSCRIBED=="yes"] <-1
+d$SUBSCRIBED<-as.factor(d$SUBSCRIBED)
+
+class(d$SUBSCRIBED)
+
+
+d$job<-as.factor(d$job)
+d$marital<-as.factor(d$marital)
+
+
+table(d$education)
+
+
+educ <- function(educ){
+
+  if (educ=='illiterate') {
+    return('illiterate')
+
+  }else if (educ=='basic.4y' | educ=='basic.6y'|educ=='basic.9y'){
+    return('basic')
+  }else if (educ=='high.school' ){
+    return('intermediate')
+  }else if(educ=='university.degree'| educ=='professional.course'){
+    return("advance")
+  }else{
+    return(educ)
+  }
+}
+
+d$education <- sapply(d$education,educ)
+
+
+
+d$education<-as.factor(d$education)
+
+table(d$education)
+
+
+
+d$default<-as.factor(d$default)
+d$housing<-as.factor(d$housing)
+d$loan<-as.factor(d$loan)
+
+
+d$contact<-as.factor(d$contact)
+d$day_of_week<-as.factor(d$day_of_week)
+
+d$month<-as.factor(d$month)
+
+
+d$poutcome<-as.factor(d$poutcome)
+
+
+hist(d$pdays, xlab="pdays",main=" ", col = 'lightblue')# vlepoume pws ta perrissotera einai 999, prsosferei idia plhroforia me poutcome to vgazoume
+
+d$pdays<-NULL
+
+d$previous # poly paromoio me poutcome tha doume
+
+hist(d$age, xlab="age",main=" ", col = 'lightblue')## vlepoume oti sto 30-50 paratirountai oi perissoteres parathrhseis opote isws prepei na toi kanoume factor
+
+## METATROPH AGE SE FACTOR
+d$age<-cut(d$age,breaks=c(16,25,50,70, max(d$age)),labels=c(">25","25-50","50-70" ,">70"))
+d$age<- as.factor(d$age) 
+levels(d$age) <- c(">25","25-50","50-70",">70" )
+
+
+
+str(d)
+
+############ ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## part 1
+
+## ## ## ## ## ## ## ## ## ## ## ## #PART1
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+install.packages("psych")
+require(psych)
+
+head(data)
+mode(data$SUBSCRIBED)
+
+library(ROCR)
+install.packages("naivebayes")
+library('naivebayes')
+data <- d
+first<-d
+
+install.packages("caret")
+library('caret')
+
+## ## ## ## ## ## ## variable selction logistic 
+
+full_model<-glm(SUBSCRIBED ~ .,data=d,family=binomial)
+summary(full_model)
+
+aic.model <- step(full_model,direction="both")
+
+model0<- glm(SUBSCRIBED~ age + marital + education + default + contact + 
+                month + day_of_week + duration + campaign + poutcome + emp.var.rate + 
+                cons.price.idx + cons.conf.idx + euribor3m , family=binomial, data=d)
+summary(model0)
+
+## ##variables<- age + marital + education + default + contact + 
+## ##month + day_of_week + duration + campaign + poutcome + emp.var.rate + 
+## ## cons.price.idx + cons.conf.idx + euribor3m
+
+
+## ## ## ## ## ## ## variable selction BAYES
+
+library('dplyr')
+social_var <- d %>% select(emp.var.rate, cons.price.idx, cons.conf.idx, euribor3m, nr.employed)
+
+
+library(corrplot)
+cor_social <- cor(social_var)
+corrplot(cor_social, method = 'number')
+##eurinbor seems has strong almost perfect correllation with some varianles so we remove it 
+#bayes not correlations
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##  
+
+
+first <- first[sample(nrow(first)), ] 
+train_proportion <- 0.7
+train_index <- runif(nrow(first)) < train_proportion
+
+
+first_train<- first[train_index,]
+first_test<- first[!train_index,]
+
+
+
+model1 <- glm(SUBSCRIBED~ age + marital + education + default + contact + 
+               month + day_of_week + duration + campaign + poutcome + emp.var.rate + 
+               cons.price.idx + cons.conf.idx + euribor3m , family=binomial, data=first_train)
+
+
+predict0 <- predict(model1,first_test,  type = 'response')
+
+library(pROC)
+roc(first_test$SUBSCRIBED, predictor=predict0 )
+roc(first_test$SUBSCRIBED, predict0,plot=TRUE,legacy.axes=TRUE)
+
+## roc.info <- roc(first_test$SUBSCRIBED, first_test$SUBSCRIBED$fitted.values,legacy.axes=TRUE)
+##  peripou 0.95
+
+
+
+
+
+
+
+
+
+
+n <- dim(data)[1]
+k <- 6
+set.seed(1)
+deiktes<-sample(1:n)	#random permutation of the rows
+methods <- c('logistic', 'naiveBayes','tree')
+accuracy <- matrix(data=NA, ncol= k, nrow = length(methods))
+ari <- matrix(data=NA, ncol= k, nrow = length(methods))
+
+rownames(accuracy) <- rownames(ari) <- methods
+
+lacc<-NULL
+lsen<-NULL
+lspec<-NULL
+lf1<-NULL
+
+
+bacc<-NULL
+bsen<-NULL
+bspec<-NULL
+bf1<-NULL
+
+
+tacc<-NULL
+tsen<-NULL
+tspec<-NULL
+tf1<-NULL
+
+
+
+
+
+#6K-cv
+
+for (i in 1:k){
+  te <- deiktes[ ((i-1)*(n/k)+1):(i*(n/k))]	
+  train <- data[-te, ]
+  test <- data[te,]
+  y_test<-test$SUBSCRIBED
+  test <- data[te,-20]
+
+
+  #	logistic
+  z <- glm(SUBSCRIBED~ age + marital + education + default + contact + 
+             month + day_of_week + duration + campaign + poutcome + emp.var.rate + 
+             cons.price.idx + cons.conf.idx + euribor3m  , family=binomial, data=train)
+  lpr <- predict(z, newdata = test, type = "response")
+
+
+  lpr <- ifelse((lpr) > 0.095,1,0)
+  accuracy['logistic',i] <- sum(data[te,]$SUBSCRIBED == lpr)/dim(test)[1]
+  ari['logistic',i] <- adjustedRandIndex(lpr, data[te,]$SUBSCRIBED)
+
+
+
+
+  #	naive Bayes
+  z <-naiveBayes(SUBSCRIBED ~ .-(euribor3m), data = train )
+  npr <- predict(z, test)
+  oo<- npr
+  accuracy['naiveBayes',i] <- sum(data[te,]$SUBSCRIBED == npr)/dim(test)[1]
+  ari['naiveBayes',i] <- adjustedRandIndex(npr, data[te,]$SUBSCRIBED)
+
+
+
+  #	tree
+  #fit1 <- tree(SUBSCRIBED ~ ., data = train)
+  fit1 <- rpart(SUBSCRIBED~., data = train, method = 'class')
+  tpr <- predict(fit1,newdata=test)
+
+  tpr <- ifelse(tpr[,'1'] > 0.095,1,0)
+  accuracy['tree',i] <- sum(data[te,]$SUBSCRIBED == tpr)/dim(test)[1]
+	ari['tree',i] <- adjustedRandIndex(tpr, data[te,]$SUBSCRIBED)
+
+
+
+
+  cmlr <-confusionMatrix(factor(lpr), factor(y_test), mode='everything' , positive='1')
+  cmnr <-confusionMatrix(factor(npr), factor(y_test), mode='everything' , positive='1')
+  cmtr <-confusionMatrix(factor(tpr), factor(y_test), mode='everything' , positive='1')
+
+  lacc <-c(lacc,cmlr$overal[1])
+  lsen <-c(lsen, cmlr$byClass[1])
+  lspec <-c(lspec,cmlr$byClass[2])
+  lf1 <-c(lf1,cmlr$byClass[7])
+
+  bacc <-c(bacc,cmnr$overal[1])
+  bsen <-c(bsen, cmnr$byClass[1])
+  bspec <-c(bspec,cmnr$byClass[2])
+  bf1 <-c(bf1,cmnr$byClass[7])
+
+
+  tacc <-c(tacc,cmtr$overal[1])
+  tsen <-c(tsen, cmtr$byClass[1])
+  tspec <-c(tspec,cmtr$byClass[2])
+  tf1 <-c(tf1,cmtr$byClass[7])
+
+
+
+
+
+}
+
+
+
+log_Accuracy<-mean(lacc)
+log_Sensitivity <- mean(lsen)
+log_Specificity<- mean(lspec)
+log_F1<- mean(lf1)
+
+
+
+Bayes_Accuracy<-mean(bacc)
+Bayes_Sensitivity <- mean(bsen)
+Bayes_Specificity<- mean(bspec)
+Bayes_F1<- mean(bf1)
+
+
+
+tree_Accuracy<-mean(tacc)
+tree_Sensitivity <- mean(tsen)
+tree_Specificity<- mean(tspec)
+tree_F1<- mean(tf1)
+
+
+
+
+rpart.plot
+rpart.plot(fit1,box.palette="grey", shadow.col="gray", nn=TRUE)
+
+
+
+## bayes confussion matrix
+table_bayes <- as.table(cmnr)
+table_bayes<-as.data.frame(table_bayes)
+
+table_bayes %>% ggplot(mapping=aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), fontface = "bold", color = "black") +
+  scale_fill_gradient(low = "lightgrey", high = "grey")
+  + theme_minimal() +
+  theme(legend.position = "none")
+
+##logistic confussion matrix
+table_logistic <- as.table(cmlr)
+table_logistic<-as.data.frame(table_logistic)
+
+table_logistic %>% ggplot(mapping=aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), fontface = "bold", color = "black") +
+  scale_fill_gradient(low = "lightgrey", high = "grey")
++ theme_minimal() +theme(legend.position = "none")
+
+##tree confussion matrix
+table_tree <- as.table(cmtr)
+table_tree<-as.data.frame(table_tree)
+
+table_tree %>% ggplot(mapping=aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), fontface = "bold", color = "black") +
+  scale_fill_gradient(low = "lightgrey", high = "grey")
++ theme_minimal() +
+  theme(legend.position = "none")
+
+
+
+
+
+##Coclusions
+
+table(data$SUBSCRIBED)
+
+boxplot(t(accuracy), ylab='predictive accuracy', xlab='method')
+
+
+############ ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+
+## ## ## ## ## ## ## ## ## ## ## ## # PART2
+
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## 
+
+
+general_data=read_excel( "/Users/giannisdekoulakos/Desktop/karlis/project_I.xls")
+describe(general_data)
+clustering_data <- general_data[, c("age", "job", "marital", "education", "default", "housing", "loan", "campaign","pdays","previous", "poutcome")]
+str(clustering_data )
+clustering_data$job<-as.factor(clustering_data$job)
+clustering_data$marital<-as.factor(clustering_data$marital)
+
+
+clustering_data$education<- as.factor(clustering_data$education)
+
+
+## METATROPH AGE SE FACTOR
+clustering_data$age<-cut(clustering_data$age,breaks=c(16,25,50,70, max(clustering_data$age)),labels=c(">25","25-50","50-70" ,">70"))
+clustering_data$age<- as.factor(clustering_data$age) 
+levels(clustering_data$age) <- c(">25","25-50","50-70",">70" )
+clustering_data$housing<-as.factor(clustering_data$housing)
+str(clustering_data)
+
+clustering_data$pdays<-NULL
+##vlepoume pws ta perrissotera einai 999, prsosferei idia plhroforia me poutcome to vgazoume
+
+
+
+
+clustering_data$default<-as.factor(clustering_data$default)
+clustering_data$poutcome<-as.factor(clustering_data$poutcome)
+clustering_data$loan<-as.factor(clustering_data$loan)
+
+test<-clustering_data[, c("age", "job", "marital", "education", "default", "housing", "loan", "campaign", "poutcome",'previous')]
+str(test)
+
+
+set.seed(1)
+library('dplyr')
+sample_clust <- sample_n(test, 10000)
+
+
+summary(sample_clust)
+
+gower_dist <- daisy(sample_clust,
+                    metric = "gower"
+)
+
+
+
+# Calculate silhouette width for many k using PAM
+
+
+sil_width <- c(NA)
+for(i in 2:10){
+
+  pam_fit <- pam(gower_dist,
+                 diss = TRUE,
+                 k = i)
+
+  sil_width[i] <- pam_fit$silinfo$avg.width
+
+}
+
+
+# Plot sihouette width (higher is better)
+plot(1:10, sil_width,
+     xlab = "Number of clusters",
+     ylab = "Silhouette Width")
+lines(1:10, sil_width)
+
+
+
+pam_fit <- pam(gower_dist, diss = TRUE, k = 3)
+
+pam_results <- sample_clust %>%
+
+  mutate(cluster = pam_fit$clustering) %>%
+  group_by(cluster) %>%
+  do(the_summary = summary(.))
+
+pam_results$the_summary
+
+install.packages('Rtsne')
+library(Rtsne) 
+
+tsne_obj <- Rtsne(gower_dist, is_distance = TRUE)
+
+tsne_data <- tsne_obj$Y %>%
+  data.frame() %>%
+  setNames(c("X", "Y")) %>%
+  mutate(cluster = factor(pam_fit$clustering)
+         )
+
+
+install.packages("tidyverse")
+install.packages("ggplot2")
+library('ggplot2')
+ggplot(aes(x = X, y = Y), data = tsne_data) +
+  geom_point(aes(color = cluster)) 
+
+
+model_silhouette = silhouette(pam_fit$clustering, as.matrix(gower_dist))
+
+plot(model_silhouette , main="ward" , border=NA)
+
+sample_clust[pam_fit$medoids, ]
+
+
